@@ -36,6 +36,9 @@ import openmods.sync.SyncableFlags;
 import openmods.sync.SyncableTank;
 import openmods.tileentity.SyncedTileEntity;
 
+import net.minecraftforge.common.IPlantable;
+import net.minecraft.block.IGrowable;
+
 public class TileEntitySprinkler extends SyncedTileEntity implements ISurfaceAttachment, IInventoryProvider, IHasGui, INeighbourAwareTile {
 
 	private static final ItemStack BONEMEAL = new ItemStack(Items.dye, 1, 15);
@@ -74,31 +77,44 @@ public class TileEntitySprinkler extends SyncedTileEntity implements ISurfaceAtt
 		tank = new SyncableTank(Config.sprinklerInternalTank, FluidRegistry.WATER, OpenBlocks.Fluids.xpJuice);
 	}
 
-	private static int selectFromRange(int range) {
-		return RANDOM.nextInt(2 * range + 1) - range;
-	}
-
 	private void attemptFertilize() {
 		if (!(worldObj instanceof WorldServer)) return;
-		final int fertilizerChance = hasBonemeal? Config.sprinklerBonemealFertizizeChance : Config.sprinklerFertilizeChance;
-		if (RANDOM.nextDouble() < 1.0 / fertilizerChance) {
-			FakePlayerPool.instance.executeOnPlayer((WorldServer)worldObj, new PlayerUser() {
-				@Override
-				public void usePlayer(OpenModsFakePlayer fakePlayer) {
-					final int x = selectFromRange(Config.sprinklerEffectiveRange) + xCoord;
-					final int z = selectFromRange(Config.sprinklerEffectiveRange) + zCoord;
-
-					for (int i = -1; i <= 1; i++) {
-						int y = yCoord + i;
-
-						if (ItemDye.applyBonemeal(BONEMEAL.copy(), worldObj, x, y, z, fakePlayer))
-							break;
-
-					}
-				}
-			});
-		}
+		growCropsNearby((WorldServer) worldObj, xCoord, yCoord, zCoord);
 	}
+
+	private int tileRange() {
+		return Config.sprinklerEffectiveRange;
+	}
+
+	private int secondsBetweenGrowthTicks() {
+		return 5;
+	}
+
+	public void growCropsNearby(WorldServer world, int xO, int yO, int zO) {
+        for (int xD = -tileRange(); xD <= tileRange(); xD++) {
+            for (int yD = -1; yD <= tileRange(); yD++) {
+                for (int zD = -tileRange(); zD <= tileRange(); zD++) {
+                    int x = xO + xD;
+                    int y = yO + yD;
+                    int z = zO + zD;
+
+                    double distance = Math.sqrt(Math.pow(x-xO, 2) + Math.pow(y - yO,2) + Math.pow(z - zO,2));
+                    // distance -= fullPotencyRange();
+                    distance = Math.min(1D, distance);
+                    double distanceCoefficient = 1D - (distance / tileRange());
+
+                    Block block = world.getBlock(x, y, z);
+
+                    if (block instanceof IPlantable || block instanceof IGrowable) {
+						//it schedules the next tick.
+						world.scheduleBlockUpdate(x, y, z, block, (int) (distanceCoefficient * (float) secondsBetweenGrowthTicks() * 20F));
+						block.updateTick(world, x, y, z, world.rand);
+                    }
+                }
+            }
+        }
+        world.scheduleBlockUpdate(xO, yO, zO, world.getBlock(xO, yO, zO), secondsBetweenGrowthTicks() * 20);
+    }
 
 	@Override
 	public Object getServerGui(EntityPlayer player) {
